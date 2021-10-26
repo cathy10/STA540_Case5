@@ -1,0 +1,74 @@
+---
+title: "Causal Inference"
+author: "Cathy Shi"
+date: "10/26/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(tidyverse)
+library(PSweight)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Learn several most common methods to conduct causal analysis: regression adjustment, propensity scores, matching, weighting
+
+Apply these methods to the Right Heart Catheterization (RHC) data to investigate the average and individual causal effects of RHC on survival on heart disease patients
+
+Clarify assumptions that are necessary to interpret the results as causal in this case study
+
+
+```{r readfile}
+data = read.csv("rhc.csv")
+str(data)
+rhc = data %>% 
+  dplyr::select(-1) %>% 
+  mutate_at(c(1, 3,4,6:19, 21, 22), as.factor) #
+rhc_no_outcome = rhc %>% 
+  dplyr::select(-53)
+str(rhc)  
+```
+
+
+# EDA
+
+```{r}
+
+```
+
+
+
+
+#  Estimating Propensity Scores and Balance Check
+
+```{r}
+ps.any <- treatment ~ .
+bal.any <- SumStat(ps.formula = ps.any, data = rhc_no_outcome, weight = c("IPW", "overlap", "treated"))
+summary(bal.any)
+plot(bal.any, type = "density")
+plot(bal.any, type = "hist")
+plot(bal.any, type = "balance", metric = "PSD")
+
+
+```
+
+The full return of SumStat is a list including the treatment group level (for defining ATT) ("trtgrp"), estimated propensity scores ("propensity"), estimated weight under each weighting scheme ("ps.weights"), effective sample size ("ess") and balance statistics under each weighting scheme (e.g., "unweighted.sumstat", "IPW.sumstat", "overlap.sumstat", "treated.sumstat"). Further, the balance statistics for each weighting scheme includes both ASD and PSD, with both the unweighted or weighted standard deviation of the covariates.
+
+
+# Estimation and Inference of (Weighted) Average Treatment Effects
+
+Estimate the average treatment effect (ATE) of RHC on the survival status 30 days post admission, and identify important covariates for the average estimation: 
+```{r}
+
+ate.any <- PSweight(ps.formula = ps.any, yname = "dth30", data = rhc,
+                    weight= "IPW")
+summary(ate.any) #provide the estimated average potential outcomes for each treatment level
+ate.any
+```
+ate.any contains a list of six elements: estimated propensity scores (propensity), estimated average potential outcomes (muhat), joint covariance matrix of the estimated average potential outcomes (covmu), estimates for each bootstrap sample if bootstrap = TRUE (muboot), group label in alphabetic orders (group), and the indicated
+treatment group for defining ATT (trtgrp).
+
+
+### plotting propensity score against covaraites
+

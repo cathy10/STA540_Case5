@@ -12,6 +12,47 @@ library(PSweight)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+### Causal inference
+- Not looking for difference between groups but wanna see same person receive the same treatment. 
+- Actually missing value problem
+- Matching
+  - see if the two groups are from the same population based on the covariates. So we try to find pairs of people who are similar to each other based on the covariates, and see the difference between the groups made of pairs of people. 
+  - Problem: how close the covariates should be
+- Weighting
+  - Smooth matching
+  - Weight the subjects. Get weighted average?.
+  - Covariates help me to classificy people to different groups
+  - regression: y: being in a group or not. x: covariates for a subject in that group or not. So propensity score is the probability of a subject in the reatment group given the covaraites
+    --use logistic regressioin usuaully. Decision tree can also do it.
+    -- for each subject, there suppose to be a true propensity score, but we are modeling it. 
+    
+    
+- how to use propensity score to get the treatment effect?
+  - IPW: 
+    - weight is 1/(prob of being assigned to .. group)
+    - on the whole population
+    - for missclassified person, you want to increase the weight for that?
+    - it's unbiased estimator, but you could get a huge number for someone with extreme values (fitted probability is close to 0), which makes the model based on that one observation. so it's unstable.
+    - solution: trimming. 
+      - if the probability is smaller than 1%, we trim that person off. The trimming brings bias but is more stable. Good threshold for trimming is at debate. Also you are not focusing on the whole population anymore--we don't have extreme values.  
+    - Overlapping:
+      - Closer the score to 1/2, the higher the weight given to that subject.
+      - at 1/2: You can't tell whether this person should be in one group or the other based on the covariates.
+      - only focuses on the overlapping population--the overlapped population is controlled by the overlapping weights--we are calculating the people who are in the overlapping group.
+      - also unbiased and more stable. the weights are constrained to be 0-1. Has smallest variance comparing to other methods. balance plot--standardized balance is 0 between two groups. 
+      - cutoff? no. the weight itself tells you who we are focused on. we just different weights to everyone and hence focusing on the people with higher weights, or we call them "overlapping" population.
+      - min pop size? enough covariates to separate.
+      - propnesity score is more like a summary to let me know whether a subject could be takaing the treatment or not, so we just use that summary to decide the weights betweeter.
+      
+      - the propensity score controlled for all the covaraites (ie we can assumme that they are from the same population), so we can just look at the difference bewteen the weight average of the groups.
+      - use the overlap wieght to get the average treatment effect.
+    
+
+
+this is only under the model that the propensity score, there's no standardized difference. but our model isn't perfect.
+
+
+
 Learn several most common methods to conduct causal analysis: regression adjustment, propensity scores, matching, weighting
 
 Apply these methods to the Right Heart Catheterization (RHC) data to investigate the average and individual causal effects of RHC on survival on heart disease patients
@@ -34,21 +75,33 @@ str(rhc)
 # EDA
 
 ```{r}
-
+ggplot(data = rhc) + geom_point()
 ```
 
 
-
-
 #  Estimating Propensity Scores and Balance Check
-
-```{r}
+2 models: propensity score (logistic regression result). check balance after that. modify the model after checking the score. then use weighting
+```{r, fig.width=15}
 ps.any <- treatment ~ .
 bal.any <- SumStat(ps.formula = ps.any, data = rhc_no_outcome, weight = c("IPW", "overlap", "treated"))
-summary(bal.any)
+k = summary(bal.any)
+bal.any.new <- bal.any
+
+get_rid_of_last_row <- function(mat) return (mat[-nrow(mat), ])
+bal.any.new$unweighted.sumstat <- get_rid_of_last_row(bal.any.new$unweighted.sumstat)
+bal.any.new$IPW.sumstat <- get_rid_of_last_row(bal.any.new$IPW.sumstat)
+bal.any.new$overlap.sumstat <- get_rid_of_last_row(bal.any.new$overlap.sumstat)
+bal.any.new$treated.sumstat <- get_rid_of_last_row(bal.any.new$treated.sumstat)
+
+k_new <- k
+k_new$unweighted <- k_new$unweighted[-nrow(k_new$unweighted), ]
+k_new$IPW <- k_new$IPW[-nrow(k_new$IPW), ]
+k_new$overlap <- k_new$overlap[-nrow(k_new$overlap), ]
+k_new$treated <- k_new$treated[-nrow(k_new$treated), ]
+
 plot(bal.any, type = "density")
 plot(bal.any, type = "hist")
-plot(bal.any, type = "balance", metric = "PSD")
+plot(bal.any.new, type = "balance", metric = "PSD")
 
 
 ```
@@ -60,6 +113,16 @@ The full return of SumStat is a list including the treatment group level (for de
 
 Estimate the average treatment effect (ATE) of RHC on the survival status 30 days post admission, and identify important covariates for the average estimation: 
 ```{r}
+
+ate.any <- PSweight(ps.formula = ps.any, yname = "dth30", data = rhc,
+                    weight= "IPW")
+summary(ate.any) #provide the estimated average potential outcomes for each treatment level
+ate.any
+
+ate.any <- PSweight(ps.formula = ps.any, yname = "dth30", data = rhc,
+                    weight= "IPW")
+summary(ate.any) #provide the estimated average potential outcomes for each treatment level
+ate.any
 
 ate.any <- PSweight(ps.formula = ps.any, yname = "dth30", data = rhc,
                     weight= "IPW")

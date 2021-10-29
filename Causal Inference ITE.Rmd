@@ -1,0 +1,132 @@
+---
+title: "Causal Inference ITE"
+author: "Cathy Shi"
+date: "10/26/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(tidyverse)
+library(PSweight)
+library(grf)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+        
+```{r readfile}
+data = read.csv("rhc.csv")
+rhc = data %>% 
+  dplyr::select(-1) %>% 
+  mutate_at(c(1, 3,4,6:19, 21, 22), as.factor) #
+rhc_no_outcome = rhc %>% 
+  dplyr::select(-53)
+#str(rhc)  
+```
+
+```{r}
+library(splitTools)
+set.seed(2022)
+inds <- partition(rhc$treatment, p = c(train = 1/3, valid = 1/3, test = 1/3))
+
+train_model <- rhc[inds$train, ]
+train_ce <- rhc[inds$valid, ]
+test <- rhc[inds$test, ]
+```
+
+
+```{r}
+
+train_model_nooutcome = train_model %>% dplyr::select(-53)
+ps.any <- treatment ~ .
+bal.any <- SumStat(ps.formula = ps.any, data = train_model_nooutcome, weight = c("IPW", "overlap", "treated"))
+#bal.any$overlap
+
+ate.any.overlap <- PSweight(ps.formula = ps.any, yname = "dth30", data = train_model, weight= "overlap")
+summary(ate.any.overlap) #provide the estimated average potential outcomes for each treatment level
+$ate.any.overlap$propensity
+
+X = train_model %>% dplyr::select(-1)
+X1 = model.matrix(dth30~., X)
+Y = train_model %>% dplyr::select(53) %>% unlist() %>% as.numeric()
+W = train_model %>% dplyr::select(1) %>% unlist() %>% as.numeric()-1
+
+
+#ITE
+tau.forest <- causal_forest(X1, Y, W)
+average_treatment_effect(tau.forest, target.sample = "all")
+
+```
+
+
+
+
+
+### Ignore the following
+
+#  Estimating Propensity Scores and Balance Check
+2 models: propensity score (logistic regression result). check balance after that. modify the model after checking the score. then use weighting
+```{r, fig.width=15}
+ps.any <- treatment ~ .
+bal.any <- SumStat(ps.formula = ps.any, data = rhc_no_outcome, weight = c("IPW", "overlap", "treated"))
+k = summary(bal.any)
+bal.any.new <- bal.any
+
+get_rid_of_last_row <- function(mat) return (mat[-nrow(mat), ])
+bal.any.new$unweighted.sumstat <- get_rid_of_last_row(bal.any.new$unweighted.sumstat)
+bal.any.new$IPW.sumstat <- get_rid_of_last_row(bal.any.new$IPW.sumstat)
+bal.any.new$overlap.sumstat <- get_rid_of_last_row(bal.any.new$overlap.sumstat)
+bal.any.new$treated.sumstat <- get_rid_of_last_row(bal.any.new$treated.sumstat)
+
+k_new <- k
+k_new$unweighted <- k_new$unweighted[-nrow(k_new$unweighted), ]
+k_new$IPW <- k_new$IPW[-nrow(k_new$IPW), ]
+k_new$overlap <- k_new$overlap[-nrow(k_new$overlap), ]
+k_new$treated <- k_new$treated[-nrow(k_new$treated), ]
+
+
+plot(bal.any.new, type = "balance", metric = "PSD")
+
+
+```
+```{r}
+plot(bal.any, type = "density")
+plot(bal.any, type = "hist")
+```
+
+
+The full return of SumStat is a list including the treatment group level (for defining ATT) ("trtgrp"), estimated propensity scores ("propensity"), estimated weight under each weighting scheme ("ps.weights"), effective sample size ("ess") and balance statistics under each weighting scheme (e.g., "unweighted.sumstat", "IPW.sumstat", "overlap.sumstat", "treated.sumstat"). Further, the balance statistics for each weighting scheme includes both ASD and PSD, with both the unweighted or weighted standard deviation of the covariates.
+
+
+# Estimation and Inference of (Weighted) Average Treatment Effects
+
+Estimate the average treatment effect (ATE) of RHC on the survival status 30 days post admission, and identify important covariates for the average estimation: 
+```{r}
+
+ate.any.ipw <- PSweight(ps.formula = ps.any, yname = "dth30", data = rhc,
+                    weight= "IPW")
+summary(ate.any.ipw) #provide the estimated average potential outcomes for each treatment level
+ate.any.ipw
+
+ate.any.overlap <- PSweight(ps.formula = ps.any, yname = "dth30", data = rhc,
+                    weight= "overlap")
+summary(ate.any.overlap) #provide the estimated average potential outcomes for each treatment level
+ate.any.overlap
+
+ate.any.treated <- PSweight(ps.formula = ps.any, yname = "dth30", data = rhc,
+                    weight= "treated")
+summary(ate.any.treated) #provide the estimated average potential outcomes for each treatment level
+ate.any.treated
+```
+ate.any contains a list of six elements: estimated propensity scores (propensity), estimated average potential outcomes (muhat), joint covariance matrix of the estimated average potential outcomes (covmu), estimates for each bootstrap sample if bootstrap = TRUE (muboot), group label in alphabetic orders (group), and the indicated
+treatment group for defining ATT (trtgrp).
+
+
+
+
+
+
+
+
+
+ 

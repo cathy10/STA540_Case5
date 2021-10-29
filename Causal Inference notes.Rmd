@@ -42,17 +42,85 @@ knitr::opts_chunk$set(echo = TRUE)
       - also unbiased and more stable. the weights are constrained to be 0-1. Has smallest variance comparing to other methods. balance plot--standardized balance is 0 between two groups. 
       - cutoff? no. the weight itself tells you who we are focused on. we just different weights to everyone and hence focusing on the people with higher weights, or we call them "overlapping" population.
       - min pop size? enough covariates to separate.
-      - propnesity score is more like a summary to let me know whether a subject could be takaing the treatment or not, so we just use that summary to decide the weights betweeter.
+      - propensity score is more like a summary to let me know whether a subject could be taking the treatment or not, so we just use that summary to decide the weights betweeter.
       
-      - the propensity score controlled for all the covaraites (ie we can assumme that they are from the same population), so we can just look at the difference bewteen the weight average of the groups.
+      - the propensity score controlled for all the covaraites (ie we can assumme that they are from the same population), so we can just look at the difference between the weight average of the groups.
       - use the overlap wieght to get the average treatment effect.
     
+The love plot result:  this is only under the model that the propensity score, there's no standardized difference. but our model isn't perfect.
+
+- "what to balance" comes before "how to balance". one can get perfect balance of a covariate, but if that covariate is not predictive of the outcome, such balakcing is meaningless. 
+  - matching, IPW or overlap method are just answering "how to balance"--hence, matching and IPW are not as good as weighting method. 
+  - overlap method liberates people from "how to balance" because it gives a perfect balance. so people can focus more on "what to balance"
+  
+
+- good thing about matching: it gives matching pairs.
+- but bad for small dataset
+
+- for small dataset, just do linear modeling
+
+what is individual treatment effect? ITE or CATE
+
+A common choice of outcome model is linear regression
+- linear model: just add the interaction of x and z would give the ATE.
+
+- biggest difference between causal and and others? just one more treatment indicator in the modeling?
+  - in observational study, the result is extremely sensitive to whether the model is correct
+    - for study of data with severe imbalanced, the model-based result heavily relies on extrapolation in the region with little overlap, which is sensitive to the models specification
+  we do a lot of premodeling thing to mitigating model dependence
+    - 1. design-balance covaraites
+    - 2. flexible models
+  - you don't know the true causal effect in the testing data--you still need to estimate it.
+      - so a sample can only be used either to estimate tau or decide how to build the model (eg where to place the split in trees)
+      - samples are divided into 3 subsamples: two for training (one for building the tree, one for estimating causal effects) and one for testing
+        - this is the cost for doing counter-factual prediction, ie causal study
+  
+  
+  - bayesian (BART) is great for ITE, but the prior choice matters a lot  
+    
+flexible models:
+    - causal trees and forests:
+      - CART
+        -each leaf has both avg of treated and control group and calculate the difference
+        - a small enough leaf approximates a randomized experiment
+        - each leaf is like a sub population that's homogeneious. so it's individual effect for each subgroup
+        - for forest, average the individual effects from all the trees
+        - to interpret the variable importance: see ow many times eachh random variable is being used
+        - R pacakge: `grf`
+      - key: have well balanced data.
+      
+      
+- IPW or overlap results are different--indicates there's heterogeniety in population. in randomized studies,they will be the same
+  - so we do individual treatment effect
+  - modeling checking: doing cross validation--we don't have ground truth, so we do 3-way splitting
+  - even do the flexible modeling, still do it on matching samples or balanced covariates in order to reduce the uncertainty
+  - the model will be more robust after the design
+  
+  
+  
+  report: the overlap is pretty well for our rhc data, so that's why the results are pretty similar for the different methods.
+  
+do eda to let readers know what the data look like
+
+model comparison: if we can know what contributed to the difference between the two models. whether from variables or from algo.
+
+put eda first. don't really need data wrangling--need data descriptiion. don't put bullet points of model variables. put in paragraphs. 
+  only report what we did, and don't say what we didn't do. rather, do that in discussion. 
+  
+  give captions for pictures and tables.
+  have section numbers
+  
+  give motivation and justification right before we apply each model.
+  say "Result" not "model result" in section titles.
+  
+  
+        
+        
 
 
-this is only under the model that the propensity score, there's no standardized difference. but our model isn't perfect.
 
 
-
+Goal:
 Learn several most common methods to conduct causal analysis: regression adjustment, propensity scores, matching, weighting
 
 Apply these methods to the Right Heart Catheterization (RHC) data to investigate the average and individual causal effects of RHC on survival on heart disease patients
@@ -62,13 +130,12 @@ Clarify assumptions that are necessary to interpret the results as causal in thi
 
 ```{r readfile}
 data = read.csv("rhc.csv")
-str(data)
 rhc = data %>% 
   dplyr::select(-1) %>% 
   mutate_at(c(1, 3,4,6:19, 21, 22), as.factor) #
 rhc_no_outcome = rhc %>% 
   dplyr::select(-53)
-str(rhc)  
+#str(rhc)  
 ```
 
 
@@ -99,12 +166,16 @@ k_new$IPW <- k_new$IPW[-nrow(k_new$IPW), ]
 k_new$overlap <- k_new$overlap[-nrow(k_new$overlap), ]
 k_new$treated <- k_new$treated[-nrow(k_new$treated), ]
 
-plot(bal.any, type = "density")
-plot(bal.any, type = "hist")
+
 plot(bal.any.new, type = "balance", metric = "PSD")
 
 
 ```
+```{r}
+plot(bal.any, type = "density")
+plot(bal.any, type = "hist")
+```
+
 
 The full return of SumStat is a list including the treatment group level (for defining ATT) ("trtgrp"), estimated propensity scores ("propensity"), estimated weight under each weighting scheme ("ps.weights"), effective sample size ("ess") and balance statistics under each weighting scheme (e.g., "unweighted.sumstat", "IPW.sumstat", "overlap.sumstat", "treated.sumstat"). Further, the balance statistics for each weighting scheme includes both ASD and PSD, with both the unweighted or weighted standard deviation of the covariates.
 
@@ -114,20 +185,20 @@ The full return of SumStat is a list including the treatment group level (for de
 Estimate the average treatment effect (ATE) of RHC on the survival status 30 days post admission, and identify important covariates for the average estimation: 
 ```{r}
 
-ate.any <- PSweight(ps.formula = ps.any, yname = "dth30", data = rhc,
+ate.any.ipw <- PSweight(ps.formula = ps.any, yname = "dth30", data = rhc,
                     weight= "IPW")
-summary(ate.any) #provide the estimated average potential outcomes for each treatment level
-ate.any
+summary(ate.any.ipw) #provide the estimated average potential outcomes for each treatment level
+ate.any.ipw
 
-ate.any <- PSweight(ps.formula = ps.any, yname = "dth30", data = rhc,
-                    weight= "IPW")
-summary(ate.any) #provide the estimated average potential outcomes for each treatment level
-ate.any
+ate.any.overlap <- PSweight(ps.formula = ps.any, yname = "dth30", data = rhc,
+                    weight= "overlap")
+summary(ate.any.overlap) #provide the estimated average potential outcomes for each treatment level
+ate.any.overlap
 
-ate.any <- PSweight(ps.formula = ps.any, yname = "dth30", data = rhc,
-                    weight= "IPW")
-summary(ate.any) #provide the estimated average potential outcomes for each treatment level
-ate.any
+ate.any.treated <- PSweight(ps.formula = ps.any, yname = "dth30", data = rhc,
+                    weight= "treated")
+summary(ate.any.treated) #provide the estimated average potential outcomes for each treatment level
+ate.any.treated
 ```
 ate.any contains a list of six elements: estimated propensity scores (propensity), estimated average potential outcomes (muhat), joint covariance matrix of the estimated average potential outcomes (covmu), estimates for each bootstrap sample if bootstrap = TRUE (muboot), group label in alphabetic orders (group), and the indicated
 treatment group for defining ATT (trtgrp).
